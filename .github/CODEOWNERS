@@ -1,0 +1,6 @@
+# This file defines code owners for the repository
+
+*       @dev-team
+*.kt    @android-team
+*.xml   @android-team
+/.github/workflows/ @devops-team

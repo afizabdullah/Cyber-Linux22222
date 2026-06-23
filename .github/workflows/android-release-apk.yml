@@ -1,0 +1,148 @@
+name: 🚀 Release APK - Cyber Linux OS
+
+on:
+  release:
+    types:
+      - created
+      - published
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '📌 Version (e.g., 1.0.0)'
+        required: true
+        type: string
+      release_notes:
+        description: '📝 Release Notes'
+        required: false
+        type: string
+
+env:
+  JAVA_VERSION: '17'
+  ANDROID_COMPILE_SDK: 34
+  APP_PACKAGE: 'com.cyberlinux.os'
+
+jobs:
+  release-apk:
+    name: 📱 Release APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    
+    steps:
+      - name: ⬇️ Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: ☕ Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: ${{ env.JAVA_VERSION }}
+          cache: 'gradle'
+
+      - name: 🤖 Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: |
+            platforms;android-${{ env.ANDROID_COMPILE_SDK }}
+            build-tools;34.0.0
+
+      - name: 💾 Cache Gradle
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*') }}
+          restore-keys: ${{ runner.os }}-gradle-
+
+      - name: 🔑 Decode Keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > app/release.keystore
+            echo "✅ Keystore decoded"
+          else
+            echo "❌ KEYSTORE_BASE64 not found!"
+            exit 1
+          fi
+
+      - name: 🔧 Update Version
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          VERSION="${{ github.event.inputs.version }}"
+          sed -i "s/versionName .*/versionName \"$VERSION\"/" app/build.gradle.kts
+          echo "✅ Version updated to $VERSION"
+
+      - name: 🔨 Build Signed Release APK
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          ./gradlew assembleRelease --no-daemon --stacktrace \
+            -Pandroid.injected.signing.store.file=app/release.keystore \
+            -Pandroid.injected.signing.store.password=$KEYSTORE_PASSWORD \
+            -Pandroid.injected.signing.key.alias=$KEY_ALIAS \
+            -Pandroid.injected.signing.key.password=$KEY_PASSWORD
+
+      - name: 📤 Upload APK to Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            app/build/outputs/apk/release/*.apk
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          body: |
+            🚀 **Cyber Linux OS - Release APK**
+            
+            📱 **Version:** ${{ github.event.inputs.version || 'Auto' }}
+            🔢 **Build:** ${{ github.run_number }}
+            📦 **Package:** ${{ env.APP_PACKAGE }}
+            
+            ## 📝 Release Notes
+            ${{ github.event.inputs.release_notes || '✅ Bug fixes and performance improvements' }}
+            
+            ## 🔧 Installation
+            1. Download the APK from the attachments below
+            2. Enable "Install from Unknown Sources" in Android Settings
+            3. Install the APK
+            4. Launch Cyber Linux OS
+            
+            ## ⚡ Features
+            - ✅ 150+ Linux tools
+            - ✅ AI Assistant (Arabic/English)
+            - ✅ Reverse Engineering tools
+            - ✅ APK Analyzer
+            - ✅ Security tools
+            - ✅ Full Arabic support
+            
+            ## 📊 Stats
+            - 📦 Size: $(du -h app/build/outputs/apk/release/*.apk | cut -f1)
+            - 📅 Built: $(date)
+            - 🔢 Build Number: ${{ github.run_number }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 📤 Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: CyberLinuxOS-v${{ github.event.inputs.version || github.run_number }}
+          path: app/build/outputs/apk/release/*.apk
+          retention-days: 90
+
+      - name: ✅ Release Summary
+        run: |
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "🚀 RELEASE COMPLETED SUCCESSFULLY"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "📱 App: Cyber Linux OS"
+          echo "📌 Version: ${{ github.event.inputs.version || 'Auto' }}"
+          echo "🔢 Build: ${{ github.run_number }}"
+          echo "📦 APK: app/build/outputs/apk/release/"
+          echo "🌐 GitHub: https://github.com/${{ github.repository }}/releases"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

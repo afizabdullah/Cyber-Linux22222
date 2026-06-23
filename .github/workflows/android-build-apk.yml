@@ -1,0 +1,172 @@
+name: 🔨 Build APK - Cyber Linux OS
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+      - 'feature/*'
+  pull_request:
+    branches:
+      - main
+      - develop
+  workflow_dispatch:
+    inputs:
+      build_type:
+        description: '📦 Build Type'
+        required: true
+        default: 'debug'
+        type: choice
+        options:
+          - debug
+          - release
+      run_tests:
+        description: '🧪 Run Tests'
+        required: true
+        default: true
+        type: boolean
+
+env:
+  JAVA_VERSION: '17'
+  ANDROID_COMPILE_SDK: 34
+  ANDROID_BUILD_TOOLS: '34.0.0'
+  APP_PACKAGE: 'com.cyberlinux.os'
+
+jobs:
+  build-apk:
+    name: 📱 Build APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    
+    steps:
+      - name: ⬇️ Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: ☕ Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: ${{ env.JAVA_VERSION }}
+          cache: 'gradle'
+
+      - name: 🤖 Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: |
+            platforms;android-${{ env.ANDROID_COMPILE_SDK }}
+            build-tools;${{ env.ANDROID_BUILD_TOOLS }}
+            extras;google;m2repository
+            extras;android;m2repository
+
+      - name: 💾 Cache Gradle
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
+      - name: 🔑 Decode Keystore
+        if: github.event.inputs.build_type == 'release' || github.ref == 'refs/heads/main'
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > app/release.keystore
+            echo "✅ Keystore decoded successfully"
+          else
+            echo "⚠️ No keystore found - building unsigned APK"
+          fi
+
+      - name: 🔧 Create local.properties
+        run: |
+          echo "sdk.dir=$ANDROID_HOME" > local.properties
+
+      - name: 🔍 Run Lint
+        run: |
+          ./gradlew lintDebug --no-daemon
+
+      - name: 🧪 Run Unit Tests
+        if: github.event.inputs.run_tests == 'true'
+        run: |
+          ./gradlew testDebugUnitTest --no-daemon
+
+      - name: 🔨 Build Debug APK
+        if: github.event.inputs.build_type == 'debug' || github.ref != 'refs/heads/main'
+        run: |
+          ./gradlew assembleDebug --no-daemon --stacktrace
+
+      - name: 🔨 Build Release APK (Signed)
+        if: github.event.inputs.build_type == 'release' || github.ref == 'refs/heads/main'
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          if [ -f "app/release.keystore" ] && [ -n "$KEYSTORE_PASSWORD" ]; then
+            ./gradlew assembleRelease --no-daemon --stacktrace \
+              -Pandroid.injected.signing.store.file=app/release.keystore \
+              -Pandroid.injected.signing.store.password=$KEYSTORE_PASSWORD \
+              -Pandroid.injected.signing.key.alias=$KEY_ALIAS \
+              -Pandroid.injected.signing.key.password=$KEY_PASSWORD
+            echo "✅ Signed APK built successfully"
+          else
+            echo "⚠️ No keystore found - building unsigned APK"
+            ./gradlew assembleRelease --no-daemon --stacktrace
+          fi
+
+      - name: 📤 Upload Debug APK
+        if: github.event.inputs.build_type == 'debug' || github.ref != 'refs/heads/main'
+        uses: actions/upload-artifact@v4
+        with:
+          name: CyberLinuxOS-Debug-APK
+          path: app/build/outputs/apk/debug/*.apk
+          retention-days: 30
+
+      - name: 📤 Upload Release APK
+        if: github.event.inputs.build_type == 'release' || github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v4
+        with:
+          name: CyberLinuxOS-Release-APK
+          path: app/build/outputs/apk/release/*.apk
+          retention-days: 90
+
+      - name: 📤 Upload Test Reports
+        if: github.event.inputs.run_tests == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: app/build/reports/tests/
+          retention-days: 30
+
+      - name: 📤 Upload Lint Reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: lint-reports
+          path: app/build/reports/lint-results*.html
+          retention-days: 30
+
+      - name: 📊 Get APK Size
+        run: |
+          APK_PATH=$(find app/build/outputs/apk -name "*.apk" | head -1)
+          if [ -f "$APK_PATH" ]; then
+            SIZE=$(du -h "$APK_PATH" | cut -f1)
+            echo "📦 APK Size: $SIZE"
+            echo "APK_SIZE=$SIZE" >> $GITHUB_ENV
+          fi
+
+      - name: ✅ Build Summary
+        run: |
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "✅ BUILD COMPLETED SUCCESSFULLY"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "📱 App: Cyber Linux OS"
+          echo "🔢 Build: ${{ github.run_number }}"
+          echo "📦 APK Size: ${{ env.APK_SIZE }}"
+          echo "🌿 Branch: ${{ github.ref_name }}"
+          echo "📅 Date: $(date)"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

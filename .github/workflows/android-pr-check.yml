@@ -1,0 +1,57 @@
+name: 🔍 PR Check - Cyber Linux OS
+
+on:
+  pull_request:
+    branches:
+      - main
+      - develop
+
+env:
+  JAVA_VERSION: '17'
+
+jobs:
+  pr-check:
+    name: ✅ PR Validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    
+    steps:
+      - name: ⬇️ Checkout
+        uses: actions/checkout@v4
+
+      - name: ☕ Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: ${{ env.JAVA_VERSION }}
+          cache: 'gradle'
+
+      - name: 🤖 Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: |
+            platforms;android-34
+            build-tools;34.0.0
+
+      - name: 💾 Cache Gradle
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*') }}
+          restore-keys: ${{ runner.os }}-gradle-
+
+      - name: 🔍 Run Lint
+        run: ./gradlew lintDebug --no-daemon
+
+      - name: 🧪 Run Unit Tests
+        run: ./gradlew testDebugUnitTest --no-daemon
+
+      - name: 🔨 Build Debug APK
+        run: ./gradlew assembleDebug --no-daemon
+
+      - name: ✅ PR Check Passed
+        run: |
+          echo "✅ All checks passed!"
+          echo "📱 APK built successfully"
