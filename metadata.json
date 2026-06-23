@@ -1,0 +1,6 @@
+{
+  "name": "Cyber Linux OS",
+  "description": "A Linux-style dashboard interface for Android.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
